@@ -19,6 +19,8 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(null);
+  // Default to draft so test runs don't go live on a client's production site.
+  const [publishStatus, setPublishStatus] = useState<'draft' | 'publish'>('draft');
 
   const activeSite = sites.find((s) => s.id === activeSiteId) || null;
 
@@ -130,6 +132,7 @@ export default function App() {
       siteId: activeSiteId,
       file,
       status: 'pending',
+      publishStatus,
       progress: 0,
     }));
     setFiles((prev) => [...prev, ...newProcessedFiles]);
@@ -180,7 +183,7 @@ export default function App() {
       );
       updateFile(fileToProcess.id, { progress: 95 });
 
-      const postUrl = await createPost(site, title, html, categoryId, mediaId);
+      const postUrl = await createPost(site, title, html, categoryId, mediaId, fileToProcess.publishStatus);
 
       // Done
       updateFile(fileToProcess.id, { status: 'published', progress: 100, postUrl });
@@ -241,6 +244,25 @@ export default function App() {
           <main className="flex-1 min-w-0 space-y-8">
             {activeSite ? (
               <>
+                <div className="flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-gray-100">
+                  <span className="text-sm font-medium text-gray-700 pl-1">Publish as</span>
+                  <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+                    {(['draft', 'publish'] as const).map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => setPublishStatus(opt)}
+                        className={
+                          'px-3 py-1.5 text-sm font-medium rounded-md transition-colors ' +
+                          (publishStatus === opt
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700')
+                        }
+                      >
+                        {opt === 'draft' ? 'Draft' : 'Publish live'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <FileUploader onFilesSelected={handleFilesSelected} />
                 <ProcessingList files={visibleFiles} />
               </>

@@ -86,19 +86,20 @@ export async function uploadMedia(creds: WPCredentials, base64Image: string, fil
 }
 
 export async function createPost(
-  creds: WPCredentials, 
-  title: string, 
-  content: string, 
-  categoryId: number, 
-  mediaId?: number
+  creds: WPCredentials,
+  title: string,
+  content: string,
+  categoryId: number,
+  mediaId?: number,
+  status: 'draft' | 'publish' = 'draft'
 ): Promise<string> {
   const baseUrl = normalizeUrl(creds.url);
   const targetUrl = `${baseUrl}/wp-json/wp/v2/posts`;
-  
+
   const payload: any = {
     title,
     content,
-    status: 'publish',
+    status,
     categories: [categoryId]
   };
 
@@ -132,5 +133,8 @@ export async function createPost(
   }
 
   const data = await response.json();
-  return data.link;
+  // A draft's public permalink 404s, so link to the WP editor instead.
+  return status === 'draft'
+    ? `${baseUrl}/wp-admin/post.php?post=${data.id}&action=edit`
+    : data.link;
 }

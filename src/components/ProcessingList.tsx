@@ -9,6 +9,7 @@ export interface ProcessedFile {
   siteId: string;
   file: File;
   status: ProcessStatus;
+  publishStatus: 'draft' | 'publish';
   progress: number;
   error?: string;
   postUrl?: string;
@@ -51,7 +52,11 @@ export function ProcessingList({ files }: Props) {
                     {file.title || file.file.name}
                   </p>
                   <p className="text-sm text-gray-500 truncate flex items-center mt-0.5">
-                    {getStatusText(file.status)}
+                    {file.status === 'published'
+                      ? file.publishStatus === 'draft'
+                        ? 'Saved as draft'
+                        : 'Published successfully'
+                      : getStatusText(file.status)}
                     {file.error && (
                       <span className="text-red-500 ml-2 truncate">- {file.error}</span>
                     )}
@@ -76,7 +81,7 @@ export function ProcessingList({ files }: Props) {
                     rel="noopener noreferrer"
                     className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                   >
-                    View Post
+                    {file.publishStatus === 'draft' ? 'Open draft' : 'View Post'}
                     <ExternalLink className="ml-1.5 h-3.5 w-3.5 text-gray-400" />
                   </a>
                 )}
