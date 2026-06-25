@@ -31,7 +31,10 @@ function readSites(): WPSite[] {
 
 function writeSites(sites: WPSite[]) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  fs.writeFileSync(SITES_FILE, JSON.stringify(sites, null, 2), "utf-8");
+  // Write to a temp file then rename so a crash mid-write can't corrupt or lose the store.
+  const tmp = `${SITES_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(sites, null, 2), "utf-8");
+  fs.renameSync(tmp, SITES_FILE);
 }
 
 function sanitizeInput(body: any): Omit<WPSite, "id"> | null {

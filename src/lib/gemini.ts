@@ -5,7 +5,10 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function analyzeContent(html: string, categories: WPCategory[]): Promise<{ categoryId: number, imagePrompt: string }> {
   const categoriesList = categories.map(c => `${c.id}: ${c.name}`).join('\n');
-  
+
+  // Truncate the body to keep the prompt within token limits.
+  const body = html.substring(0, 5000);
+
   const prompt = `
 You are an expert blog editor. Analyze the following blog post content (provided in HTML).
 Based on the content:
@@ -16,7 +19,7 @@ Available Categories:
 ${categoriesList}
 
 Blog Post Content:
-${html.substring(0, 5000)} // Truncate to avoid token limits if too long, though Gemini handles large contexts well.
+${body}
   `;
 
   const response = await ai.models.generateContent({

@@ -126,7 +126,7 @@ export default function App() {
   const handleFilesSelected = (newFiles: File[]) => {
     if (!activeSiteId) return;
     const newProcessedFiles: ProcessedFile[] = newFiles.map((file) => ({
-      id: Math.random().toString(36).substring(7),
+      id: crypto.randomUUID(),
       siteId: activeSiteId,
       file,
       status: 'pending',
