@@ -7,6 +7,7 @@ export type ProcessStatus = 'pending' | 'parsing' | 'analyzing' | 'generating_im
 
 export interface ProcessedFile {
   id: string;
+  siteId: string;
   file: File;
   status: ProcessStatus;
   progress: number;

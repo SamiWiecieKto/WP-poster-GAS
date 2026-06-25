@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+# Saved WordPress sites contain plaintext credentials — never commit them.
+data/
+sites.json

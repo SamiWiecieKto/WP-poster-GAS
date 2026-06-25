@@ -1,15 +1,97 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// File-backed store for saved WordPress sites (domains + credentials).
+const DATA_DIR = path.join(process.cwd(), "data");
+const SITES_FILE = path.join(DATA_DIR, "sites.json");
+
+interface WPSite {
+  id: string;
+  name: string;
+  url: string;
+  username: string;
+  appPassword: string;
+}
+
+function readSites(): WPSite[] {
+  try {
+    const raw = fs.readFileSync(SITES_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSites(sites: WPSite[]) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(SITES_FILE, JSON.stringify(sites, null, 2), "utf-8");
+}
+
+function sanitizeInput(body: any): Omit<WPSite, "id"> | null {
+  if (!body) return null;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const url = typeof body.url === "string" ? body.url.trim() : "";
+  const username = typeof body.username === "string" ? body.username.trim() : "";
+  const appPassword = typeof body.appPassword === "string" ? body.appPassword : "";
+  if (!name || !url || !username || !appPassword) return null;
+  return { name, url, username, appPassword };
+}
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
   app.use(express.json({ limit: "50mb" }));
+
+  // --- Saved sites CRUD ---
+  app.get("/api/sites", (_req, res) => {
+    res.json(readSites());
+  });
+
+  app.post("/api/sites", (req, res) => {
+    const input = sanitizeInput(req.body);
+    if (!input) {
+      return res.status(400).json({ error: "Missing required fields: name, url, username, appPassword" });
+    }
+    const sites = readSites();
+    const site: WPSite = { id: crypto.randomUUID(), ...input };
+    sites.push(site);
+    writeSites(sites);
+    res.status(201).json(site);
+  });
+
+  app.put("/api/sites/:id", (req, res) => {
+    const input = sanitizeInput(req.body);
+    if (!input) {
+      return res.status(400).json({ error: "Missing required fields: name, url, username, appPassword" });
+    }
+    const sites = readSites();
+    const index = sites.findIndex((s) => s.id === req.params.id);
+    if (index === -1) {
+      return res.status(404).json({ error: "Site not found" });
+    }
+    const updated: WPSite = { id: req.params.id, ...input };
+    sites[index] = updated;
+    writeSites(sites);
+    res.json(updated);
+  });
+
+  app.delete("/api/sites/:id", (req, res) => {
+    const sites = readSites();
+    const next = sites.filter((s) => s.id !== req.params.id);
+    if (next.length === sites.length) {
+      return res.status(404).json({ error: "Site not found" });
+    }
+    writeSites(next);
+    res.json({ ok: true });
+  });
 
   // API route to proxy WordPress requests
   app.post("/api/wp-proxy", async (req, res) => {
