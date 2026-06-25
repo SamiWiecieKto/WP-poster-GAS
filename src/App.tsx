@@ -183,10 +183,10 @@ export default function App() {
       );
       updateFile(fileToProcess.id, { progress: 95 });
 
-      const postUrl = await createPost(site, title, html, categoryId, mediaId, fileToProcess.publishStatus);
+      const { url: postUrl, date } = await createPost(site, title, html, categoryId, mediaId, fileToProcess.publishStatus);
 
       // Done
-      updateFile(fileToProcess.id, { status: 'published', progress: 100, postUrl });
+      updateFile(fileToProcess.id, { status: 'published', progress: 100, postUrl, publishedAt: date });
     } catch (err: any) {
       console.error('Error processing file:', err);
       updateFile(fileToProcess.id, { status: 'error', error: err.message || 'Unknown error occurred' });

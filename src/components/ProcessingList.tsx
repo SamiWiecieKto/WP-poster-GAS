@@ -13,6 +13,7 @@ export interface ProcessedFile {
   progress: number;
   error?: string;
   postUrl?: string;
+  publishedAt?: string;
   title?: string;
 }
 
@@ -57,6 +58,11 @@ export function ProcessingList({ files }: Props) {
                         ? 'Saved as draft'
                         : 'Published successfully'
                       : getStatusText(file.status)}
+                    {file.status === 'published' && file.publishedAt && (
+                      <span className="ml-2 text-gray-400">
+                        · {new Date(file.publishedAt).toLocaleString()}
+                      </span>
+                    )}
                     {file.error && (
                       <span className="text-red-500 ml-2 truncate">- {file.error}</span>
                     )}
