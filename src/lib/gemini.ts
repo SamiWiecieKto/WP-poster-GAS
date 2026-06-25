@@ -1,7 +1,18 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { WPCategory } from './wp-api';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Instantiate lazily: the SDK throws if no key is set, so doing this at module
+// load would crash the whole app on import. Defer it until a file is processed.
+let client: GoogleGenAI | null = null;
+function ai(): GoogleGenAI {
+  if (!client) {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY is not set. Add it to .env.local and restart.');
+    }
+    client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return client;
+}
 
 export async function analyzeContent(html: string, categories: WPCategory[]): Promise<{ categoryId: number, imagePrompt: string }> {
   const categoriesList = categories.map(c => `${c.id}: ${c.name}`).join('\n');
@@ -22,7 +33,7 @@ Blog Post Content:
 ${body}
   `;
 
-  const response = await ai.models.generateContent({
+  const response = await ai().models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: prompt,
     config: {
@@ -59,7 +70,7 @@ ${body}
 }
 
 export async function generateImage(prompt: string): Promise<string> {
-  const response = await ai.models.generateContent({
+  const response = await ai().models.generateContent({
     model: 'gemini-2.5-flash-image',
     contents: {
       parts: [
