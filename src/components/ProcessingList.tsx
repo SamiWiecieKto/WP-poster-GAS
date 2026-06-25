@@ -1,14 +1,15 @@
 import React from 'react';
 import { CheckCircle2, CircleDashed, FileText, ExternalLink, AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { motion } from 'motion/react';
 
 export type ProcessStatus = 'pending' | 'parsing' | 'analyzing' | 'generating_image' | 'uploading' | 'published' | 'error';
 
 export interface ProcessedFile {
   id: string;
+  siteId: string;
   file: File;
   status: ProcessStatus;
+  publishStatus: 'draft' | 'publish';
   progress: number;
   error?: string;
   postUrl?: string;
@@ -29,11 +30,9 @@ export function ProcessingList({ files }: Props) {
       </div>
       <ul className="divide-y divide-gray-100">
         {files.map((file) => (
-          <motion.li 
+          <li
             key={file.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="p-4 sm:px-6 hover:bg-gray-50 transition-colors"
+            className="p-4 sm:px-6 hover:bg-gray-50 transition-colors animate-fade-in-up"
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center flex-1 min-w-0">
@@ -53,7 +52,11 @@ export function ProcessingList({ files }: Props) {
                     {file.title || file.file.name}
                   </p>
                   <p className="text-sm text-gray-500 truncate flex items-center mt-0.5">
-                    {getStatusText(file.status)}
+                    {file.status === 'published'
+                      ? file.publishStatus === 'draft'
+                        ? 'Saved as draft'
+                        : 'Published successfully'
+                      : getStatusText(file.status)}
                     {file.error && (
                       <span className="text-red-500 ml-2 truncate">- {file.error}</span>
                     )}
@@ -64,11 +67,9 @@ export function ProcessingList({ files }: Props) {
               <div className="ml-4 flex-shrink-0 flex items-center space-x-4">
                 {file.status !== 'published' && file.status !== 'error' && file.status !== 'pending' && (
                   <div className="w-24 h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <motion.div 
-                      className="h-full bg-blue-500"
-                      initial={{ width: 0 }}
-                      animate={{ width: `${file.progress}%` }}
-                      transition={{ duration: 0.5 }}
+                    <div
+                      className="h-full bg-blue-500 transition-all duration-500 ease-out"
+                      style={{ width: `${file.progress}%` }}
                     />
                   </div>
                 )}
@@ -80,13 +81,13 @@ export function ProcessingList({ files }: Props) {
                     rel="noopener noreferrer"
                     className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                   >
-                    View Post
+                    {file.publishStatus === 'draft' ? 'Open draft' : 'View Post'}
                     <ExternalLink className="ml-1.5 h-3.5 w-3.5 text-gray-400" />
                   </a>
                 )}
               </div>
             </div>
-          </motion.li>
+          </li>
         ))}
       </ul>
     </div>

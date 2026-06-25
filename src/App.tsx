@@ -1,76 +1,161 @@
 import React, { useState, useEffect } from 'react';
-import { CredentialsForm } from './components/CredentialsForm';
+import { Sidebar } from './components/Sidebar';
+import { SiteForm } from './components/SiteForm';
 import { FileUploader } from './components/FileUploader';
-import { ProcessingList, ProcessedFile, ProcessStatus } from './components/ProcessingList';
-import { WPCredentials, WPCategory, fetchCategories, uploadMedia, createPost } from './lib/wp-api';
+import { ProcessingList, ProcessedFile } from './components/ProcessingList';
+import { WPCategory, fetchCategories, uploadMedia, createPost } from './lib/wp-api';
+import { WPSite, WPSiteInput, listSites, createSite, updateSite, deleteSite } from './lib/sites';
 import { extractHtmlFromDocx } from './lib/docx';
 import { analyzeContent, generateImage } from './lib/gemini';
-import { Settings, RefreshCw, AlertTriangle } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
+
+type FormState = { mode: 'add' } | { mode: 'edit'; site: WPSite } | null;
 
 export default function App() {
-  const [creds, setCreds] = useState<WPCredentials | null>(null);
-  const [categories, setCategories] = useState<WPCategory[]>([]);
+  const [sites, setSites] = useState<WPSite[]>([]);
+  const [activeSiteId, setActiveSiteId] = useState<string | null>(null);
+  const [categoriesBySite, setCategoriesBySite] = useState<Record<string, WPCategory[]>>({});
   const [files, setFiles] = useState<ProcessedFile[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(null);
+  // Default to draft so test runs don't go live on a client's production site.
+  const [publishStatus, setPublishStatus] = useState<'draft' | 'publish'>('draft');
 
-  // Load creds from local storage on mount
+  const activeSite = sites.find((s) => s.id === activeSiteId) || null;
+
+  // Load saved sites on mount, with a one-time migration from the old single-site localStorage format.
   useEffect(() => {
-    const saved = localStorage.getItem('wp_creds');
-    if (saved) {
+    (async () => {
       try {
-        setCreds(JSON.parse(saved));
-      } catch (e) {
-        // ignore
+        let loaded = await listSites();
+
+        if (loaded.length === 0) {
+          const legacy = localStorage.getItem('wp_creds');
+          if (legacy) {
+            try {
+              const parsed = JSON.parse(legacy);
+              if (parsed?.url && parsed?.username && parsed?.appPassword) {
+                const migrated = await createSite({
+                  name: parsed.url.replace(/^https?:\/\//, '').replace(/\/$/, ''),
+                  url: parsed.url,
+                  username: parsed.username,
+                  appPassword: parsed.appPassword,
+                });
+                loaded = [migrated];
+                localStorage.removeItem('wp_creds');
+              }
+            } catch {
+              // ignore malformed legacy creds
+            }
+          }
+        }
+
+        setSites(loaded);
+        if (loaded.length > 0) {
+          setActiveSiteId(loaded[0].id);
+        }
+      } catch (err: any) {
+        setGlobalError(err.message || 'Failed to load saved sites.');
       }
-    }
+    })();
   }, []);
 
-  const handleSaveCreds = async (newCreds: WPCredentials) => {
-    setGlobalError(null);
-    try {
-      // Test connection by fetching categories
-      const cats = await fetchCategories(newCreds);
-      setCategories(cats);
-      setCreds(newCreds);
-      localStorage.setItem('wp_creds', JSON.stringify(newCreds));
-    } catch (err: any) {
-      setGlobalError(err.message || 'Failed to connect to WordPress. Check your credentials and ensure HTTPS is enabled.');
-    }
+  // Ensure categories are loaded (and cached) for a given site. Returns the categories.
+  const ensureCategories = async (site: WPSite): Promise<WPCategory[]> => {
+    const cached = categoriesBySite[site.id];
+    if (cached) return cached;
+    const cats = await fetchCategories(site);
+    setCategoriesBySite((prev) => ({ ...prev, [site.id]: cats }));
+    return cats;
   };
 
-  const handleChangeCredentials = () => {
-    // We do NOT clear localStorage here immediately, just in case they cancel.
-    // We just set creds to null to show the form again.
-    // The form will be initialized with the current creds because we'll pass them!
-    const current = creds;
-    setCreds(null);
-    // actually, let's keep it in a ref or just use the localStorage to prepopulate
+  // Load categories whenever the active site changes (surfaces connection errors early).
+  useEffect(() => {
+    if (!activeSite) return;
+    setGlobalError(null);
+    ensureCategories(activeSite).catch((err: any) => {
+      setGlobalError(
+        err.message ||
+          `Failed to connect to ${activeSite.name}. Check the credentials and ensure HTTPS is enabled.`
+      );
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSiteId]);
+
+  const handleSaveSite = async (input: WPSiteInput) => {
+    if (form?.mode === 'edit') {
+      const updated = await updateSite(form.site.id, input);
+      setSites((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      // Credentials may have changed — drop cached categories so they refetch.
+      setCategoriesBySite((prev) => {
+        const next = { ...prev };
+        delete next[updated.id];
+        return next;
+      });
+      if (activeSiteId === updated.id) {
+        setGlobalError(null);
+        ensureCategories(updated).catch((err: any) => setGlobalError(err.message));
+      }
+    } else {
+      const created = await createSite(input);
+      setSites((prev) => [...prev, created]);
+      setActiveSiteId(created.id);
+    }
+    setForm(null);
+  };
+
+  const handleDeleteSite = async (site: WPSite) => {
+    if (!window.confirm(`Delete "${site.name}"? This removes its saved credentials.`)) return;
+    try {
+      await deleteSite(site.id);
+      setSites((prev) => prev.filter((s) => s.id !== site.id));
+      setFiles((prev) => prev.filter((f) => f.siteId !== site.id));
+      setCategoriesBySite((prev) => {
+        const next = { ...prev };
+        delete next[site.id];
+        return next;
+      });
+      if (activeSiteId === site.id) {
+        const remaining = sites.filter((s) => s.id !== site.id);
+        setActiveSiteId(remaining[0]?.id || null);
+      }
+    } catch (err: any) {
+      setGlobalError(err.message || 'Failed to delete site.');
+    }
   };
 
   const handleFilesSelected = (newFiles: File[]) => {
-    const newProcessedFiles: ProcessedFile[] = newFiles.map(file => ({
-      id: Math.random().toString(36).substring(7),
+    if (!activeSiteId) return;
+    const newProcessedFiles: ProcessedFile[] = newFiles.map((file) => ({
+      id: crypto.randomUUID(),
+      siteId: activeSiteId,
       file,
       status: 'pending',
-      progress: 0
+      publishStatus,
+      progress: 0,
     }));
-    
-    setFiles(prev => [...prev, ...newProcessedFiles]);
+    setFiles((prev) => [...prev, ...newProcessedFiles]);
   };
 
   const processNextFile = async () => {
-    if (isProcessing || !creds) return;
+    if (isProcessing) return;
 
-    const nextFileIndex = files.findIndex(f => f.status === 'pending');
-    if (nextFileIndex === -1) return; // All done
+    const fileToProcess = files.find((f) => f.status === 'pending');
+    if (!fileToProcess) return;
 
-    setIsProcessing(true);
-    const fileToProcess = files[nextFileIndex];
+    const site = sites.find((s) => s.id === fileToProcess.siteId);
 
     const updateFile = (id: string, updates: Partial<ProcessedFile>) => {
-      setFiles(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
+      setFiles((prev) => prev.map((f) => (f.id === id ? { ...f, ...updates } : f)));
     };
+
+    if (!site) {
+      updateFile(fileToProcess.id, { status: 'error', error: 'Site was removed' });
+      return;
+    }
+
+    setIsProcessing(true);
 
     try {
       // 1. Parsing
@@ -80,6 +165,7 @@ export default function App() {
 
       // 2. Analyzing & Category Selection
       updateFile(fileToProcess.id, { status: 'analyzing', progress: 40 });
+      const categories = await ensureCategories(site);
       const { categoryId, imagePrompt } = await analyzeContent(html, categories);
       updateFile(fileToProcess.id, { progress: 60 });
 
@@ -90,33 +176,38 @@ export default function App() {
 
       // 4. Uploading to WP
       updateFile(fileToProcess.id, { status: 'uploading', progress: 85 });
-      const mediaId = await uploadMedia(creds, base64Image, `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_featured.jpg`);
+      const mediaId = await uploadMedia(
+        site,
+        base64Image,
+        `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_featured.jpg`
+      );
       updateFile(fileToProcess.id, { progress: 95 });
 
-      const postUrl = await createPost(creds, title, html, categoryId, mediaId);
-      
+      const postUrl = await createPost(site, title, html, categoryId, mediaId, fileToProcess.publishStatus);
+
       // Done
       updateFile(fileToProcess.id, { status: 'published', progress: 100, postUrl });
-
     } catch (err: any) {
-      console.error("Error processing file:", err);
+      console.error('Error processing file:', err);
       updateFile(fileToProcess.id, { status: 'error', error: err.message || 'Unknown error occurred' });
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // Trigger processing when queue changes or processing finishes
+  // Trigger processing when queue changes or processing finishes.
   useEffect(() => {
-    if (!isProcessing && files.some(f => f.status === 'pending')) {
+    if (!isProcessing && files.some((f) => f.status === 'pending')) {
       processNextFile();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, isProcessing]);
+
+  const visibleFiles = files.filter((f) => f.siteId === activeSiteId);
 
   return (
     <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 font-sans">
-      <div className="max-w-4xl mx-auto space-y-8">
-        
+      <div className="max-w-6xl mx-auto space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900 tracking-tight">WP Auto-Poster</h1>
           <p className="mt-2 text-gray-600">
@@ -140,41 +231,59 @@ export default function App() {
           </div>
         )}
 
-        {!creds ? (
-          <CredentialsForm onSave={handleSaveCreds} initialCreds={
-            (() => {
-              const saved = localStorage.getItem('wp_creds');
-              if (saved) return JSON.parse(saved);
-              return undefined;
-            })()
-          } />
-        ) : (
-          <div className="space-y-8">
-            <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-                  <Settings className="w-5 h-5 text-green-600" />
+        <div className="flex flex-col lg:flex-row gap-8">
+          <Sidebar
+            sites={sites}
+            activeSiteId={activeSiteId}
+            onSelect={setActiveSiteId}
+            onAdd={() => setForm({ mode: 'add' })}
+            onEdit={(site) => setForm({ mode: 'edit', site })}
+            onDelete={handleDeleteSite}
+          />
+
+          <main className="flex-1 min-w-0 space-y-8">
+            {activeSite ? (
+              <>
+                <div className="flex items-center justify-between bg-white p-3 rounded-xl shadow-sm border border-gray-100">
+                  <span className="text-sm font-medium text-gray-700 pl-1">Publish as</span>
+                  <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+                    {(['draft', 'publish'] as const).map((opt) => (
+                      <button
+                        key={opt}
+                        onClick={() => setPublishStatus(opt)}
+                        className={
+                          'px-3 py-1.5 text-sm font-medium rounded-md transition-colors ' +
+                          (publishStatus === opt
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-500 hover:text-gray-700')
+                        }
+                      >
+                        {opt === 'draft' ? 'Draft' : 'Publish live'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Connected to WordPress</p>
-                  <p className="text-xs text-gray-500">{creds.url}</p>
-                </div>
+                <FileUploader onFilesSelected={handleFilesSelected} />
+                <ProcessingList files={visibleFiles} />
+              </>
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-10 text-center">
+                <p className="text-gray-600">
+                  Add a WordPress site in the left panel to get started.
+                </p>
               </div>
-              <button 
-                onClick={handleChangeCredentials}
-                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-              >
-                Change Credentials
-              </button>
-            </div>
-
-            <FileUploader onFilesSelected={handleFilesSelected} />
-
-            <ProcessingList files={files} />
-          </div>
-        )}
-
+            )}
+          </main>
+        </div>
       </div>
+
+      {form && (
+        <SiteForm
+          initial={form.mode === 'edit' ? form.site : null}
+          onSave={handleSaveSite}
+          onCancel={() => setForm(null)}
+        />
+      )}
     </div>
   );
 }

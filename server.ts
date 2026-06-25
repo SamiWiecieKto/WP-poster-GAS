@@ -5,6 +5,9 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Local dev server. The WordPress proxy routes mirror the Vercel serverless
+// functions in /api so the app behaves the same locally and when deployed.
+// Saved sites live in the browser's localStorage (see src/lib/sites.ts).
 async function startServer() {
   const app = express();
   const PORT = 3000;
