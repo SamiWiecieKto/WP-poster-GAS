@@ -92,7 +92,7 @@ export async function createPost(
   categoryId: number,
   mediaId?: number,
   status: 'draft' | 'publish' = 'draft'
-): Promise<string> {
+): Promise<{ url: string; date: string }> {
   const baseUrl = normalizeUrl(creds.url);
   const targetUrl = `${baseUrl}/wp-json/wp/v2/posts`;
 
@@ -134,7 +134,8 @@ export async function createPost(
 
   const data = await response.json();
   // A draft's public permalink 404s, so link to the WP editor instead.
-  return status === 'draft'
+  const url = status === 'draft'
     ? `${baseUrl}/wp-admin/post.php?post=${data.id}&action=edit`
     : data.link;
+  return { url, date: data.date };
 }
