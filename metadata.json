@@ -1,0 +1,5 @@
+{
+  "name": "WP Auto-Poster",
+  "description": "Automatically publish Word documents to WordPress with AI-generated featured images and categories.",
+  "requestFramePermissions": []
+}
