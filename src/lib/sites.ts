@@ -8,50 +8,46 @@ export interface WPSite extends WPCredentials {
 
 export type WPSiteInput = Omit<WPSite, 'id'>;
 
-async function parseError(response: Response, fallback: string): Promise<string> {
+// Sites live in the browser's localStorage. On a hosted deployment this keeps
+// each user's WordPress credentials in their own browser rather than on a
+// shared server. The API stays async so callers don't need to change.
+const STORAGE_KEY = 'wp_sites';
+
+function read(): WPSite[] {
   try {
-    const data = await response.json();
-    return data?.error || data?.message || fallback;
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return fallback;
+    return [];
   }
+}
+
+function write(sites: WPSite[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(sites));
 }
 
 export async function listSites(): Promise<WPSite[]> {
-  const response = await fetch('/api/sites');
-  if (!response.ok) {
-    throw new Error(await parseError(response, 'Failed to load sites'));
-  }
-  return response.json();
+  return read();
 }
 
 export async function createSite(data: WPSiteInput): Promise<WPSite> {
-  const response = await fetch('/api/sites', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    throw new Error(await parseError(response, 'Failed to create site'));
-  }
-  return response.json();
+  const sites = read();
+  const site: WPSite = { id: crypto.randomUUID(), ...data };
+  sites.push(site);
+  write(sites);
+  return site;
 }
 
 export async function updateSite(id: string, data: WPSiteInput): Promise<WPSite> {
-  const response = await fetch(`/api/sites/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    throw new Error(await parseError(response, 'Failed to update site'));
-  }
-  return response.json();
+  const sites = read();
+  const index = sites.findIndex((s) => s.id === id);
+  if (index === -1) throw new Error('Site not found');
+  const updated: WPSite = { id, ...data };
+  sites[index] = updated;
+  write(sites);
+  return updated;
 }
 
 export async function deleteSite(id: string): Promise<void> {
-  const response = await fetch(`/api/sites/${id}`, { method: 'DELETE' });
-  if (!response.ok) {
-    throw new Error(await parseError(response, 'Failed to delete site'));
-  }
+  write(read().filter((s) => s.id !== id));
 }
